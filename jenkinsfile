@@ -1,0 +1,47 @@
+pipeline {
+    agent any
+    
+    tools {
+        // Ensure these tool names match your Jenkins global tool configuration
+        maven 'Maven 3' 
+        jdk 'JDK 17'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh 'mvn clean compile'
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                sh 'mvn test'
+            }
+            post {
+                always {
+                    junit 'target/surefire-reports/*.xml'
+                }
+            }
+        }
+        
+        stage('Package') {
+            steps {
+                sh 'mvn package -DskipTests'
+            }
+        }
+        
+        stage('Containerize') {
+            steps {
+                // Requires a Dockerfile at the repository root
+                sh 'docker build -t my-springboot-app:${env.BUILD_ID} .'
+            }
+        }
+    }
+}
