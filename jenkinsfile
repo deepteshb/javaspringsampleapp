@@ -1,6 +1,6 @@
 pipeline {
     
-    //Added agent configuration to use a specific Docker agent for the build
+    //Added agent configuration to use a specific Docker agent for the build.
     agent (docker-agent01)
     
     tools {
