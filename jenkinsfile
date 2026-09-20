@@ -1,7 +1,7 @@
 pipeline {
     
     //Added agent configuration to use a specific Docker agent for the build.
-    agent agent {
+     agent {
         label 'docker-agent01'
     }
     
