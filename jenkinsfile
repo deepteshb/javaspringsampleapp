@@ -1,7 +1,9 @@
 pipeline {
     
     //Added agent configuration to use a specific Docker agent for the build.
-    agent (docker-agent01)
+    agent agent {
+        label 'docker-agent01'
+    }
     
     tools {
         // Ensure these tool names match your Jenkins global tool configuration
