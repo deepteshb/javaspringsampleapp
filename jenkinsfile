@@ -1,5 +1,5 @@
 pipeline {
-    agent any
+    agent (dockeragent-01)
     
     tools {
         // Ensure these tool names match your Jenkins global tool configuration
