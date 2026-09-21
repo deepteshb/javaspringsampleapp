@@ -17,6 +17,8 @@ pipeline {
         
         stage('Build') {
             steps {
+                //with tools
+                withEnv(["JAVA_HOME=${tool 'jdk17'}"])
                 sh 'mvn clean compile'
             }
         }
