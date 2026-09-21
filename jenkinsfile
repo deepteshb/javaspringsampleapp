@@ -20,10 +20,8 @@ pipeline {
         
         stage('Build') {
             steps {
-                dir('javaspringbootsampleapp') {
                     sh 'mvn clean compile'
                 }
-            }
         }
         
         stage('Test') {
