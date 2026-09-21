@@ -1,10 +1,11 @@
 pipeline {
-    // Top-level agent runs all stages inside this Maven container by default
-    agent {
-        docker {
-            image 'maven:3.8.6-openjdk-17-slim'
-            args '-v /root/.m2:/root/.m2' // Cache Maven dependencies
-        }
+    // Runs directly on any available Jenkins node
+    agent any 
+    
+    // Required again since we are no longer inside the Maven container
+    tools {
+        maven 'maven3' 
+        jdk 'jdk17'
     }
     
     stages {
@@ -38,15 +39,9 @@ pipeline {
         }
         
         stage('Containerize') {
-            // Override the agent just for this stage to use the Docker CLI
-            agent {
-                docker {
-                    image 'docker:latest'
-                    // Mount the host's Docker socket so the CLI can execute builds
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
-                }
-            }
             steps {
+                // Note: The Jenkins node executing this job MUST have Docker installed 
+                // on its operating system for this step to work.
                 sh "docker build -t my-springboot-app:${env.BUILD_ID} ."
             }
         }
