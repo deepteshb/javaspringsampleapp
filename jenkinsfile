@@ -44,6 +44,7 @@ pipeline {
         stage('Containerize') {
             steps {
                 // Requires a Dockerfile at the repository root
+                sh "which docker"
                 sh "podman build -tmy-springboot-app:${env.BUILD_ID} ."
             }
         }
