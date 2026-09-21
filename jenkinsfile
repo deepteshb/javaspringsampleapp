@@ -41,11 +41,17 @@ pipeline {
             }
         }
         
-        stage('Containerize') {
+stage('Containerize') {
+            // Spin up a container that already has Docker installed just for this stage
+            agent {
+                docker {
+                    image 'docker:latest'
+                    // Mount the host's Docker socket so the CLI can execute builds
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                }
+            }
             steps {
-                // Requires a Dockerfile at the repository root
-                sh "which docker"
-                sh "podman build -tmy-springboot-app:${env.BUILD_ID} ."
+                sh "docker build -t my-springboot-app:${env.BUILD_ID} ."
             }
         }
     }
