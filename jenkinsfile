@@ -1,14 +1,10 @@
 pipeline {
-    
-    //Added agent configuration to use a specific Docker agent for the build.
-     agent {
-        label 'docker-agent01'
-    }
-    
-    tools {
-        // Ensure these tool names match your Jenkins global tool configuration
-        maven 'maven3' 
-        jdk 'jdk17'
+    // Top-level agent runs all stages inside this Maven container by default
+    agent {
+        docker {
+            image 'maven:3.8.6-openjdk-17-slim'
+            args '-v /root/.m2:/root/.m2' // Cache Maven dependencies
+        }
     }
     
     stages {
@@ -20,8 +16,8 @@ pipeline {
         
         stage('Build') {
             steps {
-                    sh 'mvn clean compile'
-                }
+                sh 'mvn clean compile'
+            }
         }
         
         stage('Test') {
@@ -41,8 +37,8 @@ pipeline {
             }
         }
         
-stage('Containerize') {
-            // Spin up a container that already has Docker installed just for this stage
+        stage('Containerize') {
+            // Override the agent just for this stage to use the Docker CLI
             agent {
                 docker {
                     image 'docker:latest'
