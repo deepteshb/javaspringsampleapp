@@ -42,9 +42,13 @@ pipeline {
         
         stage('Containerize') {
             steps {
-                // Note: The Jenkins node executing this job MUST have Docker installed 
-                // on its operating system for this step to work.
-                sh "docker build -t my-springboot-app:${env.BUILD_ID} ."
+                agent {
+                    docker {
+                        image 'docker:latest'
+                        args '-v /var/run/docker.sock:/var/run/docker.sock'
+                    }
+                }
+                sh 'docker build -t myapp:latest .'
             }
         }
     }
