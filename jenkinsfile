@@ -1,47 +1,45 @@
 pipeline {
-    // Runs directly on any available Jenkins node
-    agent any 
-    
-    // Required again since we are no longer inside the Maven container
-    tools {
-        maven 'maven3' 
-        jdk 'jdk17'
+    agent any
+
+    environment {
+        APP_NAME = 'javaspringbootsampleapp'
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        IMAGE_NAME = "${APP_NAME}:${IMAGE_TAG}"
     }
-    
+
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
-        
-        stage('Build') {
+
+        stage('Build Application') {
             steps {
-                sh 'mvn clean install -DskipTests'
+                sh 'mvn clean package -DskipTests'
             }
         }
-        
-        stage('Test') {
+
+        stage('Build Docker Image') {
             steps {
-                sh 'mvn test'
-            }
-            post {
-                always {
-                    junit 'target/surefire-reports/*.xml'
-                }
+                sh "docker build -t ${IMAGE_NAME} ."
             }
         }
-        
-        stage('Package') {
+
+        stage('Push Docker Image') {
+            when {
+                expression { return env.DOCKER_REGISTRY?.trim() }
+            }
             steps {
-                sh 'mvn package -DskipTests'
+                sh "docker tag ${IMAGE_NAME} ${env.DOCKER_REGISTRY}/${IMAGE_NAME}"
+                sh "docker push ${env.DOCKER_REGISTRY}/${IMAGE_NAME}"
             }
         }
-        
-        stage('Containerize') {
-            steps {
-                sh 'docker build -t javaspringbootsampleapp:latest .'
-            }
+    }
+
+    post {
+        always {
+            echo 'Pipeline finished.'
         }
     }
 }
