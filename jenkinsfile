@@ -3,26 +3,27 @@ pipeline {
 
     environment {
         APP_NAME = 'javaspringbootsampleapp'
-        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        IMAGE_TAG = "${env.BUILD_NUMBER ?: 'latest'}"
         IMAGE_NAME = "${APP_NAME}:${IMAGE_TAG}"
     }
 
     stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-
         stage('Build Application') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh '''
+                    docker run --rm \
+                      -v "$PWD":/workspace \
+                      -w /workspace \
+                      -v "$HOME/.m2":/root/.m2 \
+                      maven:3.9.9-eclipse-temurin-17 \
+                      mvn -B clean package -DskipTests
+                '''
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t ${IMAGE_NAME} ."
+                sh "docker build -f dockerfile -t ${IMAGE_NAME} ."
             }
         }
 
@@ -31,8 +32,8 @@ pipeline {
                 expression { return env.DOCKER_REGISTRY?.trim() }
             }
             steps {
-                sh "docker tag ${IMAGE_NAME} ${env.DOCKER_REGISTRY}/${IMAGE_NAME}"
-                sh "docker push ${env.DOCKER_REGISTRY}/${IMAGE_NAME}"
+                sh "docker tag ${IMAGE_NAME} ${env.DOCKER_REGISTRY}/${APP_NAME}:${IMAGE_TAG}"
+                sh "docker push ${env.DOCKER_REGISTRY}/${APP_NAME}:${IMAGE_TAG}"
             }
         }
     }
