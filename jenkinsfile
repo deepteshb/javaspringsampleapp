@@ -42,13 +42,7 @@ pipeline {
         
         stage('Containerize') {
             steps {
-                agent {
-                    docker {
-                        image 'docker:latest'
-                        args '-v /var/run/docker.sock:/var/run/docker.sock'
-                    }
-                }
-                sh 'docker build -t myapp:latest .'
+                sh 'docker build -t javaspringbootsampleapp:latest .'
             }
         }
     }
