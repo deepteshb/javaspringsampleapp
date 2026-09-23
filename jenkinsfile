@@ -17,13 +17,11 @@ pipeline {
     }
 
     stages {
-        stage('Checkout Source (GitHub Multibranch)') {
+        stage('Checkout Source') {
             steps {
                 script {
                     try {
                         echo '=== Checkout stage started ==='
-                        echo "Branch: ${env.BRANCH_NAME ?: 'not-set'}"
-                        echo "Git URL: ${env.GIT_URL ?: 'not-set'}"
                         checkout scm
                         sh 'git --no-pager status --short --branch'
                         echo "===Repository checkout succeeded. Workspace: ${env.WORKSPACE}==="
@@ -41,19 +39,13 @@ pipeline {
                 script {
                     try {
                         echo '=== Verifying Docker daemon access ==='
+                        // Just rely on the Docker CLI to confirm the connection.
                         sh '''
                             set -eux
-                            ls -l /var/run/docker.sock || true
-                            docker version || true
-
-                            if [ ! -S /var/run/docker.sock ]; then
-                                echo 'ROOT CAUSE: Jenkins cannot see the host Docker daemon.'
-                                echo 'Required fix: start Jenkins with the Docker socket mounted.'
-                                echo 'Example: docker run -v /var/run/docker.sock:/var/run/docker.sock ...'
-                                exit 1
-                            fi
+                            docker version
+                            docker info
                         '''
-                        echo 'Docker socket is reachable.'
+                        echo 'Docker is reachable.'
                     } catch (err) {
                         echo "===ERROR: Docker access check failed. Root cause: ${err}=="
                         currentBuild.result = 'FAILURE'
@@ -79,8 +71,6 @@ pipeline {
   "credHelpers": {}
 }
 EOF
-
-                            echo "Docker config directory: $DOCKER_CONFIG"
                             cat "$DOCKER_CONFIG/config.json"
                         '''
                         echo '===Docker config prepared successfully.==='
@@ -100,8 +90,6 @@ EOF
                         echo '=== Maven build stage started ==='
                         sh '''
                             set -eux
-                            export DOCKER_CONFIG="$WORKSPACE/.docker-config"
-
                             docker run --rm \
                               -v "$WORKSPACE:/workspace" \
                               -v "$HOME/.m2:/root/.m2" \
@@ -113,7 +101,6 @@ EOF
                         echo 'Maven package completed successfully.'
                     } catch (err) {
                         echo "ERROR: Maven build failed. Root cause: ${err}"
-                        echo 'Root cause hint: Docker required a working socket and avoided Desktop credential helpers.'
                         currentBuild.result = 'FAILURE'
                         throw err
                     }
@@ -128,22 +115,14 @@ EOF
                         echo '=== Docker image build started ==='
                         sh '''
                             set -eux
-                            export DOCKER_CONFIG="$WORKSPACE/.docker-config"
-
-                            docker version
-                            echo "Current Docker config: $DOCKER_CONFIG"
-                            docker info | head -n 20
-
                             mkdir -p "$ARTIFACT_DIR"
 
                             docker build --pull --no-cache \
-                              -t "$IMAGE_NAME:$IMAGE_TAG" \
-                              -f dockerfile .
+                              -t "$IMAGE_NAME:$IMAGE_TAG" .
                         '''
                         echo "Docker image built successfully: ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
                     } catch (err) {
                         echo "ERROR: Docker image build failed. Root cause: ${err}"
-                        echo 'Root cause hint: Jenkins cannot reach the host Docker daemon or is still trying to use a missing Docker Desktop credential helper.'
                         currentBuild.result = 'FAILURE'
                         throw err
                     }
@@ -158,11 +137,8 @@ EOF
                         echo '=== Artifact packaging stage started ==='
                         sh '''
                             set -eux
-                            export DOCKER_CONFIG="$WORKSPACE/.docker-config"
-
                             mkdir -p "$ARTIFACT_DIR"
                             docker save -o "$ARTIFACT_DIR/${IMAGE_NAME}-${IMAGE_TAG}.tar" "$IMAGE_NAME:$IMAGE_TAG"
-                            ls -lh "$ARTIFACT_DIR"
                         '''
                         archiveArtifacts artifacts: "artifacts/*.tar", fingerprint: true
                         echo "Image tar artifact saved at: ${env.ARTIFACT_DIR}/${env.IMAGE_NAME}-${env.IMAGE_TAG}.tar"
@@ -180,18 +156,19 @@ EOF
         always {
             script {
                 echo "Pipeline final status: ${currentBuild.currentResult}"
+                
+                // Cleanup to prevent your Mac from running out of disk space
+                echo 'Cleaning up local Docker image...'
+                sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
             }
         }
 
         success {
-            echo "SUCCESS: Docker image created and stored as an artifact at ${env.ARTIFACT_DIR}/${env.IMAGE_NAME}-${env.IMAGE_TAG}.tar"
-            echo 'This tar file can be copied to another machine and pushed to Artifactory or JFrog later.'
+            echo "SUCCESS: Docker image created and stored as an artifact."
         }
 
         failure {
             echo 'FAILURE: The pipeline stopped before the image artifact was published.'
-            echo 'Root cause details are in the logs above.'
-            echo 'Most likely fix: start Jenkins with -v /var/run/docker.sock:/var/run/docker.sock and keep DOCKER_CONFIG pointing to an empty local folder.'
         }
     }
 }
