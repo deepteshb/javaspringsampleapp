@@ -1,15 +1,11 @@
-# syntax=docker/dockerfile:1
+# Use a lightweight base image
+FROM alpine:latest
 
-FROM maven:3.9.9-eclipse-temurin-17 AS build
+# Set a working directory
 WORKDIR /app
 
-COPY . .
-RUN mvn clean package -DskipTests
+# Run a simple command to verify the build process is working
+RUN echo "Hello from the Jenkins pipeline build!" > test-file.txt
 
-FROM eclipse-temurin:17-jre
-WORKDIR /app
-
-COPY --from=build /app/target/*.jar app.jar
-
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+# Set a default command (optional, but good practice)
+CMD ["cat", "test-file.txt"]
