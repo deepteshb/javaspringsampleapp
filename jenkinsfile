@@ -2,45 +2,140 @@ pipeline {
     agent any
 
     environment {
-        APP_NAME = 'javaspringbootsampleapp'
-        IMAGE_TAG = "${env.BUILD_NUMBER ?: 'latest'}"
-        IMAGE_NAME = "${APP_NAME}:${IMAGE_TAG}"
+        IMAGE_NAME = 'javaspringsampleapp'
+        IMAGE_TAG = "${env.BUILD_NUMBER ?: 'local'}"
+        ARTIFACT_DIR = "${env.WORKSPACE}/artifacts"
+        DOCKER_BUILDKIT = '1'
+    }
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
     }
 
     stages {
-        stage('Build Application') {
+        stage('Checkout Source') {
             steps {
-                sh '''
-                    docker run --rm \
-                      -v "$PWD":/workspace \
-                      -w /workspace \
-                      -v "$HOME/.m2":/root/.m2 \
-                      maven:3.9.9-eclipse-temurin-17 \
-                      mvn -B clean package -DskipTests
-                '''
+                script {
+                    try {
+                        echo '--- Checkout stage started ---'
+                        checkout scm
+                        echo "Repository checkout succeeded. Workspace: ${env.WORKSPACE}"
+                    } catch (err) {
+                        echo "ERROR: Checkout failed. Root cause: ${err}"
+                        currentBuild.result = 'FAILURE'
+                        throw err
+                    }
+                }
+            }
+        }
+
+        stage('Build JAR with Maven Container') {
+            agent {
+                docker {
+                    image 'maven:3.9.9-eclipse-temurin-17'
+                    args '-v "$HOME/.m2:/root/.m2" -v "$WORKSPACE:/workspace" -w /workspace'
+                    reuseNode true
+                }
+            }
+            steps {
+                script {
+                    try {
+                        echo '--- Maven build stage started ---'
+
+                        sh '''
+                            set -eux
+                            mvn -B -DskipTests clean package
+                        '''
+
+                        echo 'Maven package completed successfully.'
+                    } catch (err) {
+                        echo "ERROR: Maven build failed. Root cause: ${err}"
+
+                        currentBuild.result = 'FAILURE'
+                        throw err
+                    }
+                }
             }
         }
 
         stage('Build Docker Image') {
+            agent {
+                docker {
+                    image 'docker:24.0.6'
+                    args '--privileged -v /var/run/docker.sock:/var/run/docker.sock -v "$WORKSPACE:/workspace" -w /workspace'
+                    reuseNode true
+                }
+            }
             steps {
-                sh "docker build -f dockerfile -t ${IMAGE_NAME} ."
+                script {
+                    try {
+                        echo '--- Docker image build started ---'
+
+                        sh '''
+                            set -eux
+                            mkdir -p "$ARTIFACT_DIR"
+                            docker version
+                            docker build --pull --no-cache -t "$IMAGE_NAME:$IMAGE_TAG" -f dockerfile .
+                        '''
+
+                        echo "Docker image built successfully: ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+                    } catch (err) {
+                        echo "ERROR: Docker image build failed. Root cause: ${err}"
+
+                        currentBuild.result = 'FAILURE'
+                        throw err
+                    }
+                }
             }
         }
 
-        stage('Push Docker Image') {
-            when {
-                expression { return env.DOCKER_REGISTRY?.trim() }
+        stage('Save Image as Artifact') {
+            agent {
+                docker {
+                    image 'docker:24.0.6'
+                    args '--privileged -v /var/run/docker.sock:/var/run/docker.sock -v "$WORKSPACE:/workspace" -w /workspace'
+                    reuseNode true
+                }
             }
             steps {
-                sh "docker tag ${IMAGE_NAME} ${env.DOCKER_REGISTRY}/${APP_NAME}:${IMAGE_TAG}"
-                sh "docker push ${env.DOCKER_REGISTRY}/${APP_NAME}:${IMAGE_TAG}"
+                script {
+                    try {
+                        echo '--- Artifact packaging stage started ---'
+
+                        sh '''
+                            set -eux
+                            mkdir -p "$ARTIFACT_DIR"
+                            docker save -o "$ARTIFACT_DIR/${IMAGE_NAME}-${IMAGE_TAG}.tar" "$IMAGE_NAME:$IMAGE_TAG"
+                            ls -lh "$ARTIFACT_DIR"
+                        '''
+                        archiveArtifacts artifacts: "artifacts/*.tar", fingerprint: true
+                        echo "Image tar artifact saved at: ${env.ARTIFACT_DIR}/${env.IMAGE_NAME}-${env.IMAGE_TAG}.tar"
+                    } catch (err) {
+                        echo "ERROR: Saving image artifact failed. Root cause: ${err}"
+
+                        currentBuild.result = 'FAILURE'
+                        throw err
+                    }
+                }
             }
         }
     }
 
     post {
         always {
-            echo 'Pipeline finished.'
+            script {
+                echo "Pipeline final status: ${currentBuild.currentResult}"
+            }
+        }
+        success {
+            echo "SUCCESS: Docker image created and stored as an artifact at ${env.ARTIFACT_DIR}/${env.IMAGE_NAME}-${env.IMAGE_TAG}.tar"
+            echo 'This tar file can be copied to another machine and pushed to Artifactory/JFrog later.'
+        }
+        failure {
+            echo 'FAILURE: The pipeline stopped before the image artifact was published. Review the stage logs above for the root cause.'
         }
     }
 }
