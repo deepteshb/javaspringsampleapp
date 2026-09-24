@@ -1,6 +1,14 @@
 pipeline {
     agent any
 
+    options {
+        // Automatically discards old builds and only keeps the latest 2
+        buildDiscarder(logRotator(numToKeepStr: '2'))
+        
+        // Optional but recommended: prevents multiple builds from running at the same time
+        disableConcurrentBuilds()
+    }
+
     environment {
         // Define your image name and tag variables here
         IMAGE_NAME = 'my-springboot-app'
