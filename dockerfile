@@ -1,11 +1,15 @@
-# Use a lightweight base image
-FROM alpine:latest
+# Use a lightweight JRE base image (matching the Java 17 used in the build stage)
+FROM eclipse-temurin:17-jre-alpine
 
-# Set a working directory
+# Set the working directory inside the container
 WORKDIR /app
 
-# Run a simple command to verify the build process is working
-RUN echo "Hello from the Jenkins pipeline build!" > test-file.txt
+# Copy the compiled JAR file from the Maven build stage
+# The wildcard ensures it catches the JAR regardless of its exact version number
+COPY target/*.jar app.jar
 
-# Set a default command (optional, but good practice)
-CMD ["cat", "test-file.txt"]
+# Expose the standard Spring Boot port
+EXPOSE 8080
+
+# Command to run the application
+ENTRYPOINT ["java", "-jar", "app.jar"]

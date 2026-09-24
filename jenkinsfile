@@ -1,31 +1,50 @@
 pipeline {
     agent any
 
+    environment {
+        // Define your image name and tag variables here
+        IMAGE_NAME = 'my-springboot-app'
+        IMAGE_TAG  = "${env.BUILD_ID}"
+    }
+
     stages {
         stage('Checkout') {
             steps {
-                // Pulls the code from the repository configured in the Jenkins job
                 checkout scm
             }
         }
         
-        stage('Test Docker Build') {
+        stage('Build Spring Boot JAR') {
             steps {
-                script {
-                    // Create a unique tag using the Jenkins build number
-                    def testImageTag = "repo-build-test:${env.BUILD_ID}"
-                    
-                    echo "Building Docker image: ${testImageTag}..."
-                    
-                    // Executes the build using the Dockerfile in the root of your repo
-                    sh "docker build -t ${testImageTag} ."
-                    
-                    echo "Build successful! Cleaning up..."
-                    
-                    // Removes the newly built image from your Mac to save disk space
-                    sh "docker rmi ${testImageTag}"
-                }
+                echo 'Compiling and packaging the Spring Boot application...'
+                sh '''
+                    docker run --rm \
+                      -v "${WORKSPACE}:/workspace" \
+                      -v "${HOME}/.m2:/root/.m2" \
+                      -w /workspace \
+                      maven:3.9.9-eclipse-temurin-17 \
+                      mvn -B clean package -DskipTests
+                '''
             }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}..."
+                // Builds the image using the Dockerfile in your repository root
+                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo 'Cleaning up the local Docker image to free up disk space...'
+            sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+        }
+        success {
+            echo 'Build successful! Archiving the JAR file...'
+            archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
         }
     }
 }
