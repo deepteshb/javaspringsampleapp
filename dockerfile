@@ -1,10 +1,12 @@
 # Use the Red Hat UBI 8 Minimal base image
 FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
 
-# Install Java 17 runtime (headless is smaller and sufficient for Spring Boot) 
-# and clean the package cache to keep the image size small
+# Accept the Java version argument passed from the Jenkins matrix (defaults to 17)
+ARG JAVA_VERSION=17
+
+# Dynamically install the correct Java runtime version and clean the cache
 RUN microdnf update -y \
-    && microdnf install -y java-17-openjdk-headless \
+    && microdnf install -y java-${JAVA_VERSION}-openjdk-headless \
     && microdnf clean all
 
 # Set the working directory inside the container

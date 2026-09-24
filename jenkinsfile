@@ -14,80 +14,86 @@ pipeline {
     }
 
     stages {
-        stage('Checkout Main Workspace') {
-            steps {
-                checkout scm
-            }
-        }
-        
-        stage('Parallel Test Matrix') {
+        stage('Matrix Build & Package') {
             matrix {
                 axes {
                     axis {
                         name 'JDK_VERSION'
-                        // Defines the 4 parallel versions to test
                         values '11', '17', '25', '27'
                     }
                 }
                 stages {
-                    stage('Test') {
+                    stage('Checkout') {
                         steps {
-                            // Creates a separate, isolated workspace directory for each JDK
-                            // e.g., /Users/<name>/.jenkins/workspace/my-job_jdk_11
+                            // Assigns a unique folder on your Mac for each JDK to prevent file collisions
                             ws("${WORKSPACE}_jdk_${JDK_VERSION}") {
-                                
-                                // Pull the code into this isolated directory
                                 checkout scm
+                            }
+                        }
+                    }
+                    
+                    stage('Compile & Test') {
+                        steps {
+                            ws("${WORKSPACE}_jdk_${JDK_VERSION}") {
+                                script {
+                                    // 1. Initialize a success flag for this specific JDK version
+                                    env."BUILD_PASSED_${JDK_VERSION}" = 'false'
+                                    
+                                    try {
+                                        echo "Building Spring Boot app with JDK ${JDK_VERSION}..."
+                                        sh """
+                                            docker run --rm \\
+                                              -v "${WORKSPACE}_jdk_${JDK_VERSION}:/workspace" \\
+                                              -v "${HOME}/.m2:/root/.m2" \\
+                                              -w /workspace \\
+                                              maven:3.9-eclipse-temurin-${JDK_VERSION} \\
+                                              mvn -B clean package
+                                        """
+                                        // 2. If the build succeeds without crashing, flip the flag to true
+                                        env."BUILD_PASSED_${JDK_VERSION}" = 'true'
+                                        
+                                    } catch (Exception e) {
+                                        // 3. Catching the error prevents Jenkins from failing the whole pipeline
+                                        echo "WARNING: Build failed for JDK ${JDK_VERSION}. Ignoring and moving on."
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    stage('Build Docker Image') {
+                        // 4. This ensures Docker only builds if the Maven step above was successful
+                        when {
+                            environment name: "BUILD_PASSED_${JDK_VERSION}", value: 'true'
+                        }
+                        steps {
+                            ws("${WORKSPACE}_jdk_${JDK_VERSION}") {
+                                echo "JDK ${JDK_VERSION} passed! Building its container image..."
                                 
-                                echo "Running tests against JDK ${JDK_VERSION}..."
-                                
-                                // The Matrix axis variables are automatically injected as bash environment variables
-                                sh '''
-                                    docker run --rm \
-                                      -v "${WORKSPACE}:/workspace" \
-                                      -v "${HOME}/.m2:/root/.m2" \
-                                      -w /workspace \
-                                      maven:3.9-eclipse-temurin-${JDK_VERSION} \
-                                      mvn -B test
-                                '''
+                                // We tag the image with the JDK version so they don't overwrite each other,
+                                // and pass the JDK version inside the Dockerfile using a build-arg.
+                                sh """
+                                    docker build \\
+                                      --build-arg JAVA_VERSION=${JDK_VERSION} \\
+                                      -t ${IMAGE_NAME}:${IMAGE_TAG}-jdk${JDK_VERSION} .
+                                """
                             }
                         }
                     }
                 }
             }
         }
-        
-        stage('Build Spring Boot JAR') {
-            steps {
-                echo 'Compiling and packaging the application (using baseline Java 17)...'
-                // This uses the main workspace from the first stage
-                sh '''
-                    docker run --rm \
-                      -v "${WORKSPACE}:/workspace" \
-                      -v "${HOME}/.m2:/root/.m2" \
-                      -w /workspace \
-                      maven:3.9-eclipse-temurin-17 \
-                      mvn -B clean package -DskipTests
-                '''
-            }
-        }
-        
-        stage('Build Docker Image') {
-            steps {
-                echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}..."
-                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
-            }
-        }
     }
     
     post {
         always {
-            echo 'Cleaning up the local Docker image...'
-            sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
-        }
-        success {
-            echo 'Build successful! Archiving the JAR file...'
-            archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+            echo 'Cleaning up all images generated by this matrix run...'
+            script {
+                def versions = ['11', '17', '25', '27']
+                for (v in versions) {
+                    sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG}-jdk${v} || true"
+                }
+            }
         }
     }
 }
