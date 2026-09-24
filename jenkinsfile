@@ -1,174 +1,31 @@
 pipeline {
     agent any
 
-    environment {
-        IMAGE_NAME = 'javaspringsampleapp'
-        IMAGE_TAG = "${env.BUILD_NUMBER ?: 'local'}-${env.BRANCH_NAME ?: 'feature'}"
-        ARTIFACT_DIR = "${env.WORKSPACE}/artifacts"
-        DOCKER_BUILDKIT = '1'
-        DOCKER_CONFIG = "${env.WORKSPACE}/.docker-config"
-    }
-
-    options {
-        timestamps()
-        timeout(time: 35, unit: 'MINUTES')
-        disableConcurrentBuilds()
-        skipDefaultCheckout(false)
-    }
-
     stages {
-        stage('Checkout Source') {
+        stage('Checkout') {
+            steps {
+                // Pulls the code from the repository configured in the Jenkins job
+                checkout scm
+            }
+        }
+        
+        stage('Test Docker Build') {
             steps {
                 script {
-                    try {
-                        echo '=== Checkout stage started ==='
-                        checkout scm
-                        sh 'git --no-pager status --short --branch'
-                        echo "===Repository checkout succeeded. Workspace: ${env.WORKSPACE}==="
-                    } catch (err) {
-                        echo "ERROR: Checkout failed. Root cause: ${err}"
-                        currentBuild.result = 'FAILURE'
-                        throw err
-                    }
+                    // Create a unique tag using the Jenkins build number
+                    def testImageTag = "repo-build-test:${env.BUILD_ID}"
+                    
+                    echo "Building Docker image: ${testImageTag}..."
+                    
+                    // Executes the build using the Dockerfile in the root of your repo
+                    sh "docker build -t ${testImageTag} ."
+                    
+                    echo "Build successful! Cleaning up..."
+                    
+                    // Removes the newly built image from your Mac to save disk space
+                    sh "docker rmi ${testImageTag}"
                 }
             }
-        }
-
-        stage('Verify Docker Access') {
-            steps {
-                script {
-                    try {
-                        echo '=== Verifying Docker daemon access ==='
-                        // Just rely on the Docker CLI to confirm the connection.
-                        sh '''
-                            set -eux
-                            docker version
-                            docker info
-                        '''
-                        echo 'Docker is reachable.'
-                    } catch (err) {
-                        echo "===ERROR: Docker access check failed. Root cause: ${err}=="
-                        currentBuild.result = 'FAILURE'
-                        throw err
-                    }
-                }
-            }
-        }
-
-        stage('Prepare Docker Config') {
-            steps {
-                script {
-                    try {
-                        echo '=== Docker config preparation started ==='
-                        sh '''
-                            set -eux
-                            mkdir -p "$DOCKER_CONFIG"
-
-                            cat > "$DOCKER_CONFIG/config.json" <<'EOF'
-{
-  "auths": {},
-  "credsStore": "",
-  "credHelpers": {}
-}
-EOF
-                            cat "$DOCKER_CONFIG/config.json"
-                        '''
-                        echo '===Docker config prepared successfully.==='
-                    } catch (err) {
-                        echo "ERROR: Docker config preparation failed. Root cause: ${err}"
-                        currentBuild.result = 'FAILURE'
-                        throw err
-                    }
-                }
-            }
-        }
-
-        stage('Build JAR with Maven Container') {
-            steps {
-                script {
-                    try {
-                        echo '=== Maven build stage started ==='
-                        sh '''
-                            set -eux
-                            docker run --rm \
-                              -v "$WORKSPACE:/workspace" \
-                              -v "$HOME/.m2:/root/.m2" \
-                              -e DOCKER_CONFIG="$DOCKER_CONFIG" \
-                              -w /workspace \
-                              maven:3.9.9-eclipse-temurin-17 \
-                              mvn -B -DskipTests clean package
-                        '''
-                        echo 'Maven package completed successfully.'
-                    } catch (err) {
-                        echo "ERROR: Maven build failed. Root cause: ${err}"
-                        currentBuild.result = 'FAILURE'
-                        throw err
-                    }
-                }
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    try {
-                        echo '=== Docker image build started ==='
-                        sh '''
-                            set -eux
-                            mkdir -p "$ARTIFACT_DIR"
-
-                            docker build --pull --no-cache \
-                              -t "$IMAGE_NAME:$IMAGE_TAG" .
-                        '''
-                        echo "Docker image built successfully: ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
-                    } catch (err) {
-                        echo "ERROR: Docker image build failed. Root cause: ${err}"
-                        currentBuild.result = 'FAILURE'
-                        throw err
-                    }
-                }
-            }
-        }
-
-        stage('Save Image as Artifact') {
-            steps {
-                script {
-                    try {
-                        echo '=== Artifact packaging stage started ==='
-                        sh '''
-                            set -eux
-                            mkdir -p "$ARTIFACT_DIR"
-                            docker save -o "$ARTIFACT_DIR/${IMAGE_NAME}-${IMAGE_TAG}.tar" "$IMAGE_NAME:$IMAGE_TAG"
-                        '''
-                        archiveArtifacts artifacts: "artifacts/*.tar", fingerprint: true
-                        echo "Image tar artifact saved at: ${env.ARTIFACT_DIR}/${env.IMAGE_NAME}-${env.IMAGE_TAG}.tar"
-                    } catch (err) {
-                        echo "ERROR: Saving image artifact failed. Root cause: ${err}"
-                        currentBuild.result = 'FAILURE'
-                        throw err
-                    }
-                }
-            }
-        }
-    }
-
-    post {
-        always {
-            script {
-                echo "Pipeline final status: ${currentBuild.currentResult}"
-                
-                // Cleanup to prevent your Mac from running out of disk space
-                echo 'Cleaning up local Docker image...'
-                sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
-            }
-        }
-
-        success {
-            echo "SUCCESS: Docker image created and stored as an artifact."
-        }
-
-        failure {
-            echo 'FAILURE: The pipeline stopped before the image artifact was published.'
         }
     }
 }
