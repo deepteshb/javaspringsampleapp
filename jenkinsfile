@@ -14,7 +14,6 @@ pipeline {
     }
 
     stages {
-        // The UI will group everything inside here
         stage('Matrix Build') {
             matrix {
                 axes {
@@ -24,32 +23,33 @@ pipeline {
                     }
                 }
                 stages {
-                    // Jenkins UI will display: Matrix Build » JDK_VERSION = 17 » Checkout
                     stage('Checkout') {
                         steps {
-                            ws("${WORKSPACE}_jdk_${JDK_VERSION}") {
+                            ws("jdk_workspace_${JDK_VERSION}") {
                                 checkout scm
                             }
                         }
                     }
                     
-                    // Jenkins UI will display: Matrix Build » JDK_VERSION = 17 » Compile JAR
                     stage('Compile JAR') {
                         steps {
-                            ws("${WORKSPACE}_jdk_${JDK_VERSION}") {
+                            ws("jdk_workspace_${JDK_VERSION}") {
                                 script {
                                     env."BUILD_PASSED_${JDK_VERSION}" = 'false'
                                     
                                     catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                         echo "Building Spring Boot app with JDK ${JDK_VERSION}..."
+                                        
+                                        // The Maven cache volume is now strictly isolated per JDK version
                                         sh """
                                             docker run --rm \\
-                                              -v "${WORKSPACE}_jdk_${JDK_VERSION}:/workspace" \\
-                                              -v "${HOME}/.m2:/root/.m2" \\
+                                              -v "${WORKSPACE}:/workspace" \\
+                                              -v "${HOME}/.m2_jdk_${JDK_VERSION}:/root/.m2" \\
                                               -w /workspace \\
                                               maven:3.9-eclipse-temurin-${JDK_VERSION} \\
                                               mvn -B clean package
                                         """
+                                        
                                         env."BUILD_PASSED_${JDK_VERSION}" = 'true'
                                     }
                                 }
@@ -57,13 +57,12 @@ pipeline {
                         }
                     }
 
-                    // Jenkins UI will display: Matrix Build » JDK_VERSION = 17 » Build Image
                     stage('Build Image') {
                         when {
                             environment name: "BUILD_PASSED_${JDK_VERSION}", value: 'true'
                         }
                         steps {
-                            ws("${WORKSPACE}_jdk_${JDK_VERSION}") {
+                            ws("jdk_workspace_${JDK_VERSION}") {
                                 echo "JDK ${JDK_VERSION} passed! Building its container image..."
                                 sh """
                                     docker build \\
