@@ -14,7 +14,8 @@ pipeline {
     }
 
     stages {
-        stage('Matrix Build & Package') {
+        // The UI will group everything inside here
+        stage('Matrix Build') {
             matrix {
                 axes {
                     axis {
@@ -23,23 +24,23 @@ pipeline {
                     }
                 }
                 stages {
+                    // Jenkins UI will display: Matrix Build » JDK_VERSION = 17 » Checkout
                     stage('Checkout') {
                         steps {
-                            // Assigns a unique folder on your Mac for each JDK to prevent file collisions
                             ws("${WORKSPACE}_jdk_${JDK_VERSION}") {
                                 checkout scm
                             }
                         }
                     }
                     
-                    stage('Compile & Test') {
+                    // Jenkins UI will display: Matrix Build » JDK_VERSION = 17 » Compile JAR
+                    stage('Compile JAR') {
                         steps {
                             ws("${WORKSPACE}_jdk_${JDK_VERSION}") {
                                 script {
-                                    // 1. Initialize a success flag for this specific JDK version
                                     env."BUILD_PASSED_${JDK_VERSION}" = 'false'
                                     
-                                    try {
+                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                         echo "Building Spring Boot app with JDK ${JDK_VERSION}..."
                                         sh """
                                             docker run --rm \\
@@ -49,29 +50,21 @@ pipeline {
                                               maven:3.9-eclipse-temurin-${JDK_VERSION} \\
                                               mvn -B clean package
                                         """
-                                        // 2. If the build succeeds without crashing, flip the flag to true
                                         env."BUILD_PASSED_${JDK_VERSION}" = 'true'
-                                        
-                                    } catch (Exception e) {
-                                        // 3. Catching the error prevents Jenkins from failing the whole pipeline
-                                        echo "WARNING: Build failed for JDK ${JDK_VERSION}. Ignoring and moving on."
                                     }
                                 }
                             }
                         }
                     }
 
-                    stage('Build Docker Image') {
-                        // 4. This ensures Docker only builds if the Maven step above was successful
+                    // Jenkins UI will display: Matrix Build » JDK_VERSION = 17 » Build Image
+                    stage('Build Image') {
                         when {
                             environment name: "BUILD_PASSED_${JDK_VERSION}", value: 'true'
                         }
                         steps {
                             ws("${WORKSPACE}_jdk_${JDK_VERSION}") {
                                 echo "JDK ${JDK_VERSION} passed! Building its container image..."
-                                
-                                // We tag the image with the JDK version so they don't overwrite each other,
-                                // and pass the JDK version inside the Dockerfile using a build-arg.
                                 sh """
                                     docker build \\
                                       --build-arg JAVA_VERSION=${JDK_VERSION} \\
